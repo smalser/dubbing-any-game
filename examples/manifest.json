@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "description": "Fictional examples only. No game dialogue or original assets.",
+  "order_policy": "Explicit manifest order; this example has no branches.",
+  "lines": [
+    {
+      "id": "d001",
+      "order": 1,
+      "chapter": "01_demo",
+      "scene": "01_test",
+      "status": "ready",
+      "blockers": [],
+      "speaker": "DemoSpeaker",
+      "en": "This is a fictional pipeline example.",
+      "tts_ru": "Это вымышленный пример для проверки конвейера.",
+      "vo_path": "demo/01_demo/01_test/d001",
+      "bank_path": "demo/not-a-real-bank-d001.bnk",
+      "media_path": "demo/not-a-real-media-d001.wem",
+      "original_wav": "work/demo/originals/d001.wav",
+      "original_seconds": 2.0,
+      "original_sr": 44100,
+      "original_channels": 2,
+      "evidence": "Synthetic tone; never use this as a voice reference or real Wwise input."
+    },
+    {
+      "id": "d002",
+      "order": 2,
+      "chapter": "01_demo",
+      "scene": "01_test",
+      "status": "ready",
+      "blockers": [],
+      "speaker": "DemoSpeaker",
+      "en": "This invented line demonstrates the next queue item.",
+      "tts_ru": "Эта придуманная реплика показывает следующий элемент очереди.",
+      "vo_path": "demo/01_demo/01_test/d002",
+      "bank_path": "demo/not-a-real-bank-d002.bnk",
+      "media_path": "demo/not-a-real-media-d002.wem",
+      "original_wav": "work/demo/originals/d002.wav",
+      "original_seconds": 2.0,
+      "original_sr": 44100,
+      "original_channels": 2,
+      "evidence": "Synthetic tone; no speech, game data, or model involved."
+    }
+  ]
+}

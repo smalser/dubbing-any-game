@@ -1,0 +1,8 @@
+{
+  "DemoSpeaker": {
+    "path": "work/private-references/your-own-approved-recording.wav",
+    "reference_id": "replace-with-your-local-reviewed-id",
+    "selection_status": "needs_listening",
+    "note": "Placeholder, not a supplied voice. Keep the real recording and embedding local."
+  }
+}

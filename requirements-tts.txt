@@ -1,0 +1,5 @@
+# Observed working application package versions; install CUDA torch/torchaudio
+# separately using official PyTorch instructions for your GPU and driver.
+-r requirements.txt
+qwen-tts==0.1.1
+transformers==4.57.3
