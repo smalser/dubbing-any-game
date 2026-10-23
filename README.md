@@ -1,0 +1,63 @@
+# Game Dubbing Playbook
+
+Практический плейбук локальной нейроозвучки PC-игр: от связи текста с аудио до возобновляемой генерации, обработки и проверенного пакета мода. Основан на исследовании **Nobody Wants to Die**, Unreal/Articy/Wwise, и опыте Qwen3-TTS 1.7B.
+
+Это документация и исходный код. Игровые данные, диалоги, оригинальные голоса, embeddings, модели и готовые модифицированные банки не распространяются. Для работы с игрой нужны собственная установленная копия и локально подготовленный manifest.
+
+## Быстрый пример без игры и GPU
+
+Нужны Python 3.11+ и FFmpeg с фильтром `rubberband` в PATH.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python examples/demo.py
+.venv\Scripts\python -m unittest discover -s tests -v
+```
+
+На Linux/macOS вместо `.venv\Scripts\python` используйте `.venv/bin/python`. Demo создаёт **два искусственных сигнала, не речь**: короткий остаётся в естественном темпе с тишиной, длинный ускоряется с сохранением pitch. Результат: `outputs/demo/opening-preview.wav`, отчёты `fit-manifest.json` и timeline. Никакой TTS, сети, установки мода или обращения к игровой папке.
+
+## Что внутри
+
+| Файл | Назначение |
+|---|---|
+| [PLAYBOOK.md](PLAYBOOK.md) | Этапы, входы/выходы, доказательства успеха, отказы и откат |
+| [docs/CLI.md](docs/CLI.md) | Команды генерации, прогресс, resume и обработка |
+| [docs/NWTD_CASE_STUDY.md](docs/NWTD_CASE_STUDY.md) | Проверенный маршрут Unreal + Articy + Wwise и его границы |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Почему отказались от замедления, различия batch и singles |
+| [docs/ADAPTERS.md](docs/ADAPTERS.md) | Что нужно изменить для другой игры |
+| [examples/manifest.json](examples/manifest.json) | Полностью вымышленные строки и схема локальной очереди |
+| [examples/voices.json](examples/voices.json) | Шаблон референса с явным статусом проверки |
+| [scripts/dub.py](scripts/dub.py) | Локальный Qwen job: подготовка, генерация, журнал, fingerprints |
+| [scripts/audio_pipeline.py](scripts/audio_pipeline.py) | CPU: tempo, громкость, WEM/BNK/PAK, preview, установка |
+
+## Основные решения
+
+- Raw отдельно от обработки: новые tempo/LUFS не требуют повторной нейрогенерации.
+- По умолчанию **только ускорение**: `tempo=max(1, speech_duration/target_duration)`; короткая речь + тишина, при tempo=1 Rubber Band обходится.
+- Громкость: `original` (RMS к исходнику), `lufs` (два прохода loudnorm), `none`; отдельно gain и ограничение пиков.
+- Resume проверяет текст, модель, референс, параметры и SHA256 WAV. Просто наличие файла не считается успехом.
+- Очередь сохраняет порядок manifest. Папки глав/сцен не доказывают точный порядок сюжетных развилок.
+- Сборка и установка — разные команды. Каждый WEM проходит обратное декодирование; установка делает backup и отвергает неизвестные конфликты.
+
+## Реальная генерация
+
+Установите локальную CUDA-сборку PyTorch и [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) в отдельное окружение по инструкциям их авторов. Использовавшийся набор Python-пакетов записан в `requirements-tts.txt`; драйверы и CUDA нужно подбирать к своему ПК. Модель [Qwen3-TTS-12Hz-1.7B-Base](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base) скачивается отдельно и сохраняется в `work/models/Qwen3-TTS-1.7B-Base`.
+
+```powershell
+# План работает без импорта PyTorch и модели.
+python scripts/dub.py plan --manifest examples/manifest.json --output outputs/plan
+
+# Только после подготовки собственных local manifest/voices/assets и закрытия игры:
+python scripts/dub.py run --game "X:\Games\Nobody Wants to Die" --manifest data/story-manifest.json --voices data/voices.json --output outputs/story --preset optimized --timing speedup --loudness original
+```
+
+`examples/manifest.json` служит для demo/плана, а не запуска реального TTS или Wwise-сборки. Полная инструкция и структура локальных инструментов: [CLI](docs/CLI.md).
+
+## Статус и границы проверки
+
+Один точечный PCM WEM + BNK override подтверждён игроком в Nobody Wants to Die. Для набора 46 файлов проверены формат, длительность, декодирование WEM и состав PAK. Это не означает, что переозвучена и прослушана вся игра. Пакетная генерация дала выигрыш примерно в 3 раза на небольшом тесте; качество исполнения и скорость на других текстах требуют отдельного измерения.
+
+Неизвестные персонажи, спорные переводы и неподдерживаемые банки остаются blocked. ASR помогает находить грубые ошибки, но универсальный ASR-этап в CLI пока не реализован; прослушивание и проверка в игре обязательны для оценки качества.
+
+Проект создан с помощью AI-агента. Лицензия собственного кода и документации — [MIT](LICENSE); права на игру, голоса, инструменты и модели остаются у их правообладателей.
