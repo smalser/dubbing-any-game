@@ -1,6 +1,6 @@
 # Проверки GitHub Actions
 
-Готовый шаблон: [ci-workflow.yml](ci-workflow.yml). Матрица включает Windows, Linux и macOS с Python 3.10 и 3.12. Workflow устанавливает минимальное ядро и запускает тесты без модели и GPU. Аудиотесты требуют FFmpeg; если его нет, они будут явно пропущены. Для ускорения нужна сборка FFmpeg с Rubber Band.
+Готовый шаблон: [ci-workflow.yml](ci-workflow.yml). Матрица включает Windows, Linux и macOS с Python 3.10 и 3.12. Workflow устанавливает минимальное ядро и FFmpeg средствами runner, создаёт синтетическое demo, выполняет doctor с mock-config и запускает тесты без модели и GPU. Doctor завершит job с ошибкой, если FFmpeg или Rubber Band недоступны; конкретные сборки этих пакетов в Actions ещё не проверены. При отдельном запуске тестов аудиотесты явно пропускаются без FFmpeg.
 
 Чтобы включить Actions, скопируйте этот файл в `.github/workflows/test.yml` и сохраните изменение в GitHub. Для отправки через classic Personal Access Token требуется право `workflow`; либо используйте авторизацию с соответствующими правами или веб-редактор GitHub.
 

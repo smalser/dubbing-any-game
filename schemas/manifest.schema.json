@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["schema_version", "lines"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"type": "integer", "const": 1},
     "lines": {
       "type": "array",
       "items": {
@@ -12,12 +12,13 @@
         "required": ["id"],
         "properties": {
           "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,100}$"},
-          "speaker": {"type": "string", "minLength": 1},
-          "text": {"type": "string", "minLength": 1},
-          "reference": {"type": "string", "minLength": 1},
-          "original": {"type": "string"},
+          "speaker": {"type": "string", "pattern": "\\S"},
+          "text": {"type": "string", "pattern": "\\S"},
+          "reference": {"type": "string", "pattern": "\\S"},
+          "original": {"type": "string", "pattern": "\\S"},
           "scene": {"type": "string"},
-          "status": {"type": "string"},
+          "status": {"enum": ["ready", "reviewed", "unknown", "blocked", "excluded", "silence", "nonverbal", "development"]},
+          "reason": {"type": "string", "pattern": "\\S"},
           "blockers": {"type": "array"},
           "format": {
             "type": "object",
@@ -31,7 +32,11 @@
         },
         "allOf": [{
           "if": {"properties": {"status": {"enum": ["ready", "reviewed"]}}},
-          "then": {"required": ["speaker", "text", "reference", "format"]}
+          "then": {
+            "required": ["speaker", "text", "reference", "format"],
+            "properties": {"blockers": {"maxItems": 0}}
+          },
+          "else": {"required": ["reason"]}
         }]
       }
     }

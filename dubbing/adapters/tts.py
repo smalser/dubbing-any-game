@@ -4,7 +4,6 @@ Custom adapters are trusted Python classes selected with module:Class.
 They receive resolved reference paths; they must return one finite waveform per row.
 """
 import importlib
-from pathlib import Path
 
 
 class Mock:
@@ -46,7 +45,7 @@ class Qwen:
             text=[r['text'] for r in rows], language=[config['language']] * len(rows),
             voice_clone_prompt=[self.prompts[r['reference']] for r in rows],
             non_streaming_mode=True, max_new_tokens=config['max_new_tokens'], **config['adapter_options'])
-        return [(np.asarray(w).reshape(-1), rate) for w in waves]
+        return [(np.asarray(w), rate) for w in waves]
 
 
 def create(name):
@@ -57,4 +56,15 @@ def create(name):
     module, sep, cls = name.partition(':')
     if not sep:
         raise ValueError('Adapter must be mock, qwen or module:Class')
-    return getattr(importlib.import_module(module), cls)()
+    if not module or not cls or ':' in cls:
+        raise ValueError('Adapter must be mock, qwen or trusted module:Class')
+    try:
+        adapter_class = getattr(importlib.import_module(module), cls)
+    except AttributeError as exc:
+        raise ValueError(f'Adapter class not found: {name}') from exc
+    if not isinstance(adapter_class, type):
+        raise ValueError(f'Adapter target must be a class: {name}')
+    adapter = adapter_class()
+    if not all(callable(getattr(adapter, method, None)) for method in ('load', 'synthesize')):
+        raise ValueError(f'Adapter must implement load(config) and synthesize(rows, config): {name}')
+    return adapter

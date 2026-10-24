@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "universal-dubbing"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local, adapter-driven dialogue synthesis and portable audio delivery"
 readme = "README.md"
 license = {file = "LICENSE"}
