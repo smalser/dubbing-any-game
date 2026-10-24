@@ -1,0 +1,9 @@
+{
+  "manifest": "examples/demo/manifest.json",
+  "output": "work/demo",
+  "adapter": "mock",
+  "device": "cpu",
+  "lock_dir": "work/locks",
+  "timing": "speedup",
+  "loudness": "original"
+}

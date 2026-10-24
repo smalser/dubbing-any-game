@@ -1,0 +1,50 @@
+[
+  {
+    "speaker": "Lector",
+    "id": "100002200000257",
+    "text": "Вы страдаете? мучаетесь от боли? вас преследует страх смерти?",
+    "seed": 42,
+    "files": {
+      "before": {
+        "path": "audio/lector-before.wav",
+        "sha256": "22f7841055d0a392beb101f4a09ac694e98e951669cc172516923a625760470e"
+      },
+      "after": {
+        "path": "audio/lector-after.wav",
+        "sha256": "738ed2420951cf67cf57286d39624c4d2115560bbb1ea3342976e4559de27bdf"
+      }
+    }
+  },
+  {
+    "speaker": "James",
+    "id": "10000050001a84e",
+    "text": "А если да? Как думаешь, что бы тогда с нами было?",
+    "seed": 42,
+    "files": {
+      "before": {
+        "path": "audio/james-before.wav",
+        "sha256": "b81be5da57833850324477cfbf9281de9ca4aa993607cec9edf4abe90289207d"
+      },
+      "after": {
+        "path": "audio/james-after.wav",
+        "sha256": "f87ac3eec6b10da5a59d026cbd266999408299b31adde012e5da4386b5017818"
+      }
+    }
+  },
+  {
+    "speaker": "Rachel",
+    "id": "10000050001a85a",
+    "text": "Или... если бы оболочки вообще не было?",
+    "seed": 42,
+    "files": {
+      "before": {
+        "path": "audio/rachel-before.wav",
+        "sha256": "b5f99ffe357f0e6ccea8c795645f564ee0aea2e91312283a89fad536d19cdb35"
+      },
+      "after": {
+        "path": "audio/rachel-after.wav",
+        "sha256": "63d4d1897e82c0a31e3f326ee9e932318b090753d51fd762c4586195c3cf7ba5"
+      }
+    }
+  }
+]

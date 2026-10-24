@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "lines": [
+    {
+      "id": "demo-001",
+      "speaker": "demo",
+      "text": "Это демонстрационная реплика.",
+      "reference": "reference.wav",
+      "original": "reference.wav",
+      "scene": "intro",
+      "format": {
+        "sample_rate": 24000,
+        "channels": 1,
+        "frames": 24000
+      }
+    }
+  ]
+}
