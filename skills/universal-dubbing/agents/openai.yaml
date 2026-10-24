@@ -1,0 +1,4 @@
+interface:
+  display_name: "Universal Dubbing"
+  short_description: "Локальная озвучка игры: от исследования до пилота"
+  default_prompt: "Используй $universal-dubbing, чтобы подготовить локальную озвучку моей игры и проверить небольшой пилот."

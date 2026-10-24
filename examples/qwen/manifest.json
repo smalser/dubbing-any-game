@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "lines": [
+    {
+      "id": "voice-check-001",
+      "speaker": "my-authorized-voice",
+      "text": "Привет! Это проверка локальной озвучки.",
+      "reference": "../../work/qwen-voice-check/input/reference.wav",
+      "format": {"sample_rate": 24000, "channels": 1, "frames": 24000}
+    }
+  ]
+}

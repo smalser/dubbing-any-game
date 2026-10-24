@@ -71,3 +71,9 @@ examples/demo/manifest.json
 examples/demo/config.json
 examples/comparison/index.html
 examples/comparison/provenance.json
+docs/QWEN.md
+docs/SKILL.md
+skills/universal-dubbing/SKILL.md
+skills/universal-dubbing/agents/openai.yaml
+examples/qwen/config.json
+examples/qwen/manifest.json
