@@ -1,9 +1,12 @@
 """Resumable local dubbing CLI. Heavy ML imports happen only in generate."""
 from pathlib import Path
-import argparse, contextlib, hashlib, json, os, re, subprocess, sys, time
+import argparse, contextlib, hashlib, json, os, re, subprocess, sys, time, tempfile, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
+EVENT_LOCK = threading.RLock()
+GENERATING = False
 
 def read(path):
     return json.loads(Path(path).read_text(encoding='utf-8-sig'))
@@ -31,8 +34,11 @@ def event(name, **fields):
     detail=fields.get('error',fields.get('reason',fields.get('id',fields.get('scene',''))))
     print(f"[{record['time'][11:]}] {name}{progress}{eta} {detail or ''}", flush=True)
     if OUT:
-        with (OUT/'events.jsonl').open('a', encoding='utf8') as f: f.write(json.dumps(record, ensure_ascii=False)+'\n')
-        write(OUT/'status.json', record)
+        with EVENT_LOCK:
+            with (OUT/'events.jsonl').open('a', encoding='utf8') as f: f.write(json.dumps(record, ensure_ascii=False)+'\n')
+            preparing=name in ('bank_prepared','prepared')
+            if preparing: write(OUT/'preparation-status.json',record)
+            if not preparing or not GENERATING: write(OUT/'status.json', record)
 
 def game_closed():
     subprocess.run(['powershell','-NoProfile','-Command',
@@ -54,7 +60,7 @@ def selected(args):
             if r.get(key) and (Path(r[key]).is_absolute() or '..' in Path(r[key]).parts): raise ValueError('Unsafe asset path')
     return rows, all_count
 
-def prepare(rows):
+def prepare(rows, workers=4):
     import soundfile as sf
     originals = ROOT/'work/story-originals'; originals.mkdir(parents=True,exist_ok=True)
     extracted=ROOT/'work/extracted'; pak=ROOT_GAME/'detnoir/Content/Paks/pakchunk0-Windows.pak'
@@ -64,21 +70,44 @@ def prepare(rows):
             cmd=[str(ROOT/'work/tools/repak/repak.exe'),'unpack',str(pak),'-o',str(extracted)]
             for p in missing[start:start+30]: cmd+=['-i',p]
             subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL)
-    unpack([r['bank_path'] for r in rows])
-    for i,r in enumerate(rows):
+    unpack([spec['bank_path'] for r in rows for spec in [r, *r.get('bank_aliases', [])]])
+    def parse_bank(r):
         xml=ROOT/r['bank_xml'] if r.get('bank_xml') else originals/(r['id']+'.xml')
-        if not xml.exists():
-            subprocess.run([sys.executable,str(ROOT/'work/tools/wwiser.pyz'),'-d','xml','-dn',str(xml.with_suffix('')),str(extracted/r['bank_path'])],check=True,stdout=subprocess.DEVNULL)
+        try: ET.parse(xml)
+        except (OSError,ET.ParseError):
+            with tempfile.TemporaryDirectory(prefix='bank-',dir=originals) as temp:
+                base=Path(temp)/r['id']
+                subprocess.run([sys.executable,str(ROOT/'work/tools/wwiser.pyz'),'-d','xml','-dn',str(base),str(extracted/r['bank_path'])],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                ET.parse(base.with_suffix('.xml'))
+                os.replace(base.with_suffix('.xml'),xml)
         fs=list(ET.parse(xml).iter('field')); ids={int(f.attrib['value']) for f in fs if f.attrib.get('name')=='sourceID'}
         if len(ids)!=1: raise ValueError('Ambiguous bank sourceID '+r['id'])
         r['media_id']=next(iter(ids)); r['media_path']='detnoir/Content/WwiseAudio/Media/English(US)/'+str(r['media_id'])+'.wem'
         r['bank_xml']=str(xml.relative_to(ROOT))
+        return r
+    start=time.perf_counter()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures=[pool.submit(parse_bank,r) for r in rows]
+        for i,future in enumerate(as_completed(futures),1):
+            r=future.result();elapsed=time.perf_counter()-start
+            event('bank_prepared',done=i,total=len(rows),id=r['id'],elapsed_seconds=elapsed,eta_seconds=elapsed/i*(len(rows)-i))
     unpack([r['media_path'] for r in rows])
-    for i,r in enumerate(rows,1):
+    def decode(r):
         wav=ROOT/r['original_wav'] if r.get('original_wav') else originals/(r['id']+'.wav')
-        if not wav.exists(): subprocess.run([str(ROOT/'work/tools/vgmstream/vgmstream-cli.exe'),'-o',str(wav),str(extracted/r['media_path'])],check=True,stdout=subprocess.DEVNULL)
+        try: sf.info(wav)
+        except (OSError,RuntimeError):
+            with tempfile.TemporaryDirectory(prefix='decode-',dir=originals) as temp:
+                temporary=Path(temp)/(r['id']+'.wav')
+                subprocess.run([str(ROOT/'work/tools/vgmstream/vgmstream-cli.exe'),'-o',str(temporary),str(extracted/r['media_path'])],check=True,stdout=subprocess.DEVNULL)
+                sf.info(temporary);os.replace(temporary,wav)
         info=sf.info(wav); r.update(original_wav=str(wav.relative_to(ROOT)),original_seconds=info.frames/info.samplerate,original_sr=info.samplerate,original_channels=info.channels)
-        event('prepared',done=i,total=len(rows),id=r['id'])
+        return r
+    start=time.perf_counter()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures=[pool.submit(decode,r) for r in rows]
+        for i,future in enumerate(as_completed(futures),1):
+            r=future.result();elapsed=time.perf_counter()-start
+            event('prepared',done=i,total=len(rows),id=r['id'],elapsed_seconds=elapsed,eta_seconds=elapsed/i*(len(rows)-i))
     write(OUT/'prepared-manifest.json',rows)
     return rows
 
@@ -100,6 +129,8 @@ def settings(args):
     return {'model':identity,'language':'Russian','x_vector_only':True,'batch_size':args.batch_size,'max_new_tokens':args.max_new_tokens,'seed':args.seed,'seed_mode':args.seed_mode,'dtype':'bfloat16','attention':'sdpa'}
 
 def generate(rows,args):
+    global GENERATING
+    GENERATING=True
     game_closed()
     os.environ.update(HF_HOME=str(ROOT/'work/huggingface'),TORCH_HOME=str(ROOT/'work/torch-cache'),NUMBA_CACHE_DIR=str(ROOT/'work/numba-cache'),HF_HUB_OFFLINE='1')
     raw=OUT/'raw';raw.mkdir(exist_ok=True)
@@ -176,12 +207,14 @@ def main():
     parser.add_argument('--manifest',default='data/story-manifest.json');parser.add_argument('--output',default='outputs/full-dub')
     parser.add_argument('--scene');parser.add_argument('--limit',type=int);parser.add_argument('--batch-size',type=int,default=4)
     parser.add_argument('--timing',choices=['speedup','both','pad','none'],default='speedup');parser.add_argument('--no-trim',action='store_true')
-    parser.add_argument('--loudness',choices=['original','lufs','none'],default='original',help='Algorithmic postprocessing; never regenerates raw speech')
+    parser.add_argument('--loudness',choices=['original','lufs','none','reference'],default='original',help='Algorithmic postprocessing; never regenerates raw speech')
     parser.add_argument('--target-lufs',type=float,default=-20.0);parser.add_argument('--gain-db',type=float,default=0.0);parser.add_argument('--peak-db',type=float,default=-1.0)
     parser.add_argument('--no-fit',action='store_true');parser.add_argument('--no-build',action='store_true')
     parser.add_argument('--available-only',action='store_true',help='fit/build/preview only: select completed raw files with matching text and SHA256')
     parser.add_argument('--model',default='work/models/Qwen3-TTS-1.7B-Base');parser.add_argument('--voices',default='data/voices.json')
     parser.add_argument('--max-new-tokens',type=int,default=1024);parser.add_argument('--seed',type=int,default=42);parser.add_argument('--threads',type=int,default=6)
+    parser.add_argument('--prepare-workers',type=int,default=4,help='Parallel CPU bank/XML and WAV preparation; independent of single GPU worker')
+    parser.add_argument('--sequential-prepare',action='store_true',help='Wait for all originals before TTS; default run overlaps CPU preparation and GPU synthesis')
     parser.add_argument('--seed-mode',choices=['fixed','batch'],default='batch')
     parser.add_argument('--preset',choices=['optimized','preview'],default='optimized',help='preview: original comparison synthesis settings (single, fixed seed42, max384); fitting remains separately configurable')
     parser.add_argument('--package-name',default='NWTD_RU_Story_Qwen_P.pak');parser.add_argument('--game',help='Explicit local game install; required for prepare/run/resume/install')
@@ -193,6 +226,7 @@ def main():
         parser.error('--available-only is supported only for fit/build/preview')
     if args.limit is not None and args.limit<1: parser.error('--limit must be positive')
     if args.batch_size<1 or args.max_new_tokens<1: parser.error('batch-size and max-new-tokens must be positive')
+    if not 1<=args.prepare_workers<=16: parser.error('--prepare-workers must be between 1 and 16')
     if not -70<=args.target_lufs<=-5: parser.error('--target-lufs must be between -70 and -5')
     if not -60<=args.gain_db<=60: parser.error('--gain-db must be between -60 and 60')
     if not -9<=args.peak_db<=0: parser.error('--peak-db must be between -9 and 0')
@@ -227,14 +261,23 @@ def main():
             for speaker in {r['speaker'] for r in rows}:
                 ref=refs.get(speaker,{})
                 ref_id=ref.get('reference_id')
-                if ref.get('path') and not (ROOT/ref['path']).exists() and ref_id in by_id and ref_id not in selected_ids:
+                if ref.get('path') and not (ROOT/ref['path']).exists() and ref_id in by_id:
                     extra.append(dict(by_id[ref_id]));selected_ids.add(ref_id)
-            if extra: prepare(extra)
-            rows=prepare(rows)
+            if extra: prepare(extra,args.prepare_workers)
+            if args.command=='run' and not args.sequential_prepare:
+                # Voice references are ready; per-line original WAV/XML is only
+                # needed for fitting/packaging, not for speaker-embedding TTS.
+                event('overlap_started',selected=len(rows))
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    preparation=executor.submit(prepare,rows,args.prepare_workers)
+                    with lock(ROOT/'work/GPU-GENERATION.lock'): generate(rows,args)
+                    rows=preparation.result()
+                args.generated_in_parallel=True
+            else: rows=prepare(rows,args.prepare_workers)
         elif (OUT/'prepared-manifest.json').exists():
             prepared={r['id']:r for r in read(OUT/'prepared-manifest.json')}
             rows=[{**prepared.get(r['id'],{}),**r} for r in rows]
-        if args.command in ('generate','run'):
+        if args.command in ('generate','run') and not getattr(args,'generated_in_parallel',False):
             with lock(ROOT/'work/GPU-GENERATION.lock'): generate(rows,args)
         if args.command=='run' and (OUT/'STOP').exists(): return
         if args.command in ('fit','build','preview','install','run'):

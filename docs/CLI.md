@@ -47,7 +47,7 @@ python scripts/dub.py resume --game "X:\Games\Nobody Wants to Die" --output outp
 
 `stop` создаёт STOP, worker остановится **после текущего batch**. `resume` убирает STOP и запускает тот же flow; передавайте те же manifest/voices/preset и selection, что при исходном запуске. Валидные raw пропускаются по fingerprint/hash. Locks: `<output>/RUNNING.lock` и `work/GPU-GENERATION.lock`; после аварии удалять только убедившись, что PID уже не работает.
 
-`run --no-fit --no-build` выполняет prepare+generation. Ступени `prepare`, `generate`, `fit`, `build`, `preview`, `install` можно вызывать отдельно. `generate` ожидает уже подготовленные originals и voice references. Никакой параллельной GPU-генерации вместе с игрой.
+`run --no-fit --no-build` выполняет prepare+generation. Ступени `prepare`, `generate`, `fit`, `build`, `preview`, `install` можно вызывать отдельно. `generate` требует готовые voice references; оригинальные XML/WAV нужны последующим fit/build. `run` по умолчанию перекрывает CPU-подготовку (`--prepare-workers 4`) с одним GPU worker. `--sequential-prepare` возвращает последовательный режим. Статусы CPU и TTS независимы: `preparation-status.json` и `status.json`. ETA синтеза считать по свежим `batch_done` текущего запуска, cached показывать отдельно; не смешивать старые события с текущей скоростью. Никакой параллельной GPU-генерации вместе с игрой.
 
 ## Presets и длительность
 
@@ -74,6 +74,7 @@ python scripts/dub.py preview --output outputs/story
 
 - `--loudness original` (default): сопоставить full-file RMS с оригиналом; тишина влияет на результат.
 - `--loudness lufs`: двухпроходный FFmpeg loudnorm; короткие/неизмеримые clips переходят на original RMS с явным warning в отчёте.
+- `--loudness reference`: экспериментальная привязка LUFS к каждому оригиналу постоянным gain; короткие неизмеримые слова — active RMS. `--target-lufs` здесь не задаёт общую цель. Записываются измерения/fallback/остаточная ошибка; улучшение на слух не подтверждено, default не менялся.
 - `--loudness none`: без нормализации; gain и peak safety продолжают действовать.
 - `--target-lufs -20`, `--gain-db 0`, `--peak-db -1`: defaults. После peak clamp/дополнительного gain фактическая loudness может отличаться от цели.
 
@@ -98,4 +99,4 @@ python -m unittest discover -s tests -v
 python examples/demo.py
 ```
 
-Тест resume использует подставной синтезатор и проверяет skip/invalidation/STOP. CPU tests проверяют natural tempo короткого файла, точные кадры, ускорение длинного и отказ `pad` при длинной записи. Они не используют GPU/игру/сеть и не подтверждают качество голосов. Полный ASR новой очереди и runtime playthrough — отдельные этапы.
+Тест resume использует подставной синтезатор и проверяет skip/invalidation/STOP. CPU tests проверяют natural tempo короткого файла, точные кадры, ускорение длинного и отказ `pad` при длинной записи. Они не используют GPU/игру/сеть и не подтверждают качество голосов. Добавлены синтетические проверки reference LUFS/коротких слов и bank aliases/исходного PCM. В тесте упаковки внешние игровые инструменты подставные: он проверяет guards и набор entries, а не настоящий Wwise/Unreal runtime. Полный ASR новой очереди и runtime playthrough — отдельные этапы.

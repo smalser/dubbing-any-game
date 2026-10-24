@@ -94,6 +94,30 @@ def _trim_bounds(audio, sr):
             min(len(audio), int((active[-1]+1)*step + .08*sr)))
 
 
+def _measure_loudness(ffmpeg, source):
+    """Measure the installed FFmpeg R128 implementation without modifying audio."""
+    result = subprocess.run(
+                       [str(ffmpeg), '-hide_banner', '-nostats', '-i', str(source),
+                        '-af', 'loudnorm=I=-20:TP=-1:LRA=11:print_format=json',
+                        '-f', 'null', '-'], capture_output=True, text=True,
+                       encoding='utf8', errors='replace')
+    if result.returncode:
+        raise RuntimeError('Reference loudness measurement failed: '+result.stderr[-2000:])
+    text=result.stderr; start=text.rfind('{'); end=text.rfind('}')
+    if start<0 or end<start: raise RuntimeError('Reference loudness statistics missing')
+    return json.loads(text[start:end+1])
+
+
+def _active_rms(audio, sr):
+    """20ms active-frame RMS fallback for words too short for integrated LUFS."""
+    power = audio*audio if audio.ndim==1 else np.mean(audio*audio,axis=1)
+    hop=max(1,int(sr*.02)); n=len(power)//hop
+    if not n:return float(np.sqrt(np.mean(power)))
+    frame=np.sqrt(np.mean(power[:n*hop].reshape(n,hop),axis=1))
+    active=frame>max(float(np.max(frame))*.1,1e-5)
+    return float(np.sqrt(np.mean(frame[active]**2))) if np.any(active) else 0.
+
+
 def _loudnorm(ffmpeg, source, destination, sr, channels, target_lufs, peak_db):
     """Two-pass loudnorm; return measured parameters. Short unmeasurable clips skip."""
     base = f'loudnorm=I={target_lufs}:TP={peak_db}:LRA=11'
@@ -123,7 +147,9 @@ def fit_rows(root, rows, out, mode='speedup', trim=True, event=None,
 
     Every timing mode performs rate/channel conversion. Loudness: `original`
     matches original full-file RMS, `none` skips normalization, `lufs` uses
-    measured two-pass FFmpeg loudnorm. Then user gain and sample peak safety
+    measured two-pass FFmpeg loudnorm. `reference` applies constant gain to match
+    original integrated LUFS per line, with active-RMS fallback for short words.
+    Then user gain and sample peak safety
     cap apply in all modes. Clips too short for integrated LUFS fall back to
     original RMS and report a warning. `none` timing
     retains the (optionally boundary-trimmed) speech duration, with no pad/cut.
@@ -132,7 +158,7 @@ def fit_rows(root, rows, out, mode='speedup', trim=True, event=None,
     progress = event
     if mode not in ('speedup', 'both', 'pad', 'none'):
         raise ValueError(f'Unknown fit mode: {mode}')
-    if loudness not in ('original', 'none', 'lufs'):
+    if loudness not in ('original', 'none', 'lufs', 'reference'):
         raise ValueError(f'Unknown loudness mode: {loudness}')
     if not all(math.isfinite(v) for v in (target_lufs, gain_db, peak_db)):
         raise ValueError('Loudness parameters must be finite')
@@ -186,7 +212,25 @@ def fit_rows(root, rows, out, mode='speedup', trim=True, event=None,
             original_rms = float(np.sqrt(np.mean(original*original)))
             normalization_gain = original_rms / max(rms, 1e-8) if loudness == 'original' else 1.
             loudnorm_stats = None
-            if loudness == 'lufs':
+            if loudness == 'reference':
+                sf.write(tempwav, data, orig_sr, subtype='FLOAT')
+                reference_stats=_measure_loudness(ffmpeg,_inside(root,row['original_wav']))
+                before_stats=_measure_loudness(ffmpeg,tempwav)
+                ref_i, before_i=float(reference_stats['input_i']),float(before_stats['input_i'])
+                if math.isfinite(ref_i) and math.isfinite(before_i):
+                    normalization_gain=10**((ref_i-before_i)/20)
+                    method='original_integrated_lufs'
+                else:
+                    reference_active=_active_rms(original,orig_sr)
+                    current_active=_active_rms(data,orig_sr)
+                    if reference_active<=1e-8 or current_active<=1e-8:
+                        raise ValueError(f'{ident}: reference/processed speech is silent')
+                    normalization_gain=reference_active/current_active
+                    method='original_active_rms_short_clip'
+                loudnorm_stats={'method':method,'reference':reference_stats,'before':before_stats,
+                                'target_source':'per-line original; no common fixed target'}
+                data*=normalization_gain
+            elif loudness == 'lufs':
                 sf.write(tempwav, data, orig_sr, subtype='FLOAT')
                 normalized = Path(temp) / 'loudness.wav'
                 loudnorm_stats = _loudnorm(ffmpeg, tempwav, normalized, orig_sr, channels,
@@ -212,6 +256,24 @@ def fit_rows(root, rows, out, mode='speedup', trim=True, event=None,
             if not np.isfinite(data).all() or np.max(np.abs(data)) <= .001:
                 raise ValueError(f'{ident}: invalid fitted speech')
             sf.write(tempwav, data, orig_sr, subtype='PCM_16')
+            if loudness == 'reference' and loudnorm_stats['method'] == 'original_integrated_lufs':
+                desired_i=float(loudnorm_stats['reference']['input_i'])+gain_db
+                final_stats=_measure_loudness(ffmpeg,tempwav)
+                refinements=0
+                # Recheck actual quantized output: short gated clips may change
+                # gate membership slightly after PCM quantization.
+                for _ in range(2):
+                    final_i=float(final_stats['input_i'])
+                    if not math.isfinite(final_i) or abs(desired_i-final_i)<=.1: break
+                    correction=10**((desired_i-final_i)/20)
+                    correction=min(correction,peak_limit/max(float(np.max(np.abs(data))),1e-8))
+                    if abs(correction-1)<1e-6: break
+                    data*=correction;normalization_gain*=correction;gain*=correction
+                    sf.write(tempwav,data,orig_sr,subtype='PCM_16')
+                    final_stats=_measure_loudness(ffmpeg,tempwav);refinements+=1
+                loudnorm_stats['final']=final_stats
+                loudnorm_stats['refinements']=refinements
+                loudnorm_stats['final_error_lufs']=float(final_stats['input_i'])-desired_i
             os.replace(tempwav, fitted)
         report = dict(id=ident, speaker=row.get('speaker'), text=row.get('tts_ru'),
                       mode=mode, original_seconds=duration, fitted_seconds=len(data)/orig_sr,
@@ -245,10 +307,14 @@ def build_package(root, rows, out, package_name='NWTD_RU_Qwen_P.pak', event=None
     if Path(package_name).name != package_name or not package_name.endswith('.pak'):
         raise ValueError('package_name must be a plain .pak filename')
     out.mkdir(parents=True, exist_ok=True)
-    for field in ('media_path', 'bank_path'):
-        values = [r[field].replace('\\', '/') for r in rows]
-        if len(values) != len(set(values)):
-            raise ValueError(f'Selected rows share {field}; merge patches explicitly before packaging')
+    media_paths = [r['media_path'].replace('\\', '/') for r in rows]
+    media_ids = [int(r['media_id']) for r in rows]
+    if len(media_paths) != len(set(media_paths)) or len(media_ids) != len(set(media_ids)):
+        raise ValueError('Selected rows share physical media; conflicting text/voices must be resolved before packaging')
+    bank_paths = [spec['bank_path'].replace('\\', '/') for r in rows
+                  for spec in [r, *r.get('bank_aliases', [])]]
+    if len(bank_paths) != len(set(bank_paths)):
+        raise ValueError('Selected rows/aliases share a bank path; resolve ownership before packaging')
     fit_path = out / 'fit-manifest.json'
     fits = {r['id']: r for r in json.loads(fit_path.read_text(encoding='utf8'))['rows']} if fit_path.exists() else {}
     report, expected = [], set()
@@ -274,35 +340,58 @@ def build_package(root, rows, out, package_name='NWTD_RU_Qwen_P.pak', event=None
             if fit.get('exact_original_frames', True) and len(data) != original.frames:
                 raise ValueError(f'{ident}: frame mismatch; variable duration requires fit mode none')
             media = _inside(stage, row['media_path'])
-            bank = _inside(stage, row['bank_path'])
             media.parent.mkdir(parents=True, exist_ok=True)
-            bank.parent.mkdir(parents=True, exist_ok=True)
             _run([sys.executable, tools / 'wwav.py', 'convert', fitted, media,
                   '--codec', 'pcm', '--layout', 'packed'])
-            bank_data = bytearray(_inside(root / 'work/extracted', row['bank_path']).read_bytes())
-            fields = list(ET.parse(_inside(root, row['bank_xml'])).iter('field'))
-            plugins = [f for f in fields if f.attrib.get('name') == 'ulPluginID']
-            sizes = [f for f in fields if f.attrib.get('name') == 'uInMemoryMediaSize']
-            if len(plugins) != 1 or len(sizes) != 1:
-                raise ValueError(f'{ident}: bank is not a supported single-media bank')
-            plugin, size = plugins[0], sizes[0]
-            if int(plugin.attrib['value'], 0) != 0x40001:
-                raise ValueError(f'{ident}: expected Vorbis plugin 0x40001')
-            plugin_offset, size_offset = int(plugin.attrib['offset']), int(size.attrib['offset'])
-            if struct.unpack_from('<I', bank_data, plugin_offset)[0] != 0x40001:
-                raise ValueError(f'{ident}: bank XML does not match bank bytes')
-            struct.pack_into('<I', bank_data, plugin_offset, 0x10001)
-            struct.pack_into('<I', bank_data, size_offset, media.stat().st_size)
-            bank.write_bytes(bank_data)
+            patched_banks = []
+            for spec in [row, *row.get('bank_aliases', [])]:
+                bank = _inside(stage, spec['bank_path'])
+                bank.parent.mkdir(parents=True, exist_ok=True)
+                bank_data = bytearray(_inside(root / 'work/extracted', spec['bank_path']).read_bytes())
+                xml = _inside(root,spec['bank_xml']) if spec.get('bank_xml') else None
+                if xml is None or not xml.exists():
+                    cache=root/'work/alias-bank-originals'
+                    cache.mkdir(parents=True,exist_ok=True)
+                    xml=cache/(hashlib.sha256(bank_data).hexdigest()+'.xml')
+                    if not xml.exists():
+                        with tempfile.TemporaryDirectory(prefix='xml-',dir=cache) as xmltemp:
+                            base=Path(xmltemp)/'bank'
+                            _run([sys.executable,tools/'wwiser.pyz','-d','xml','-dn',base,
+                                  _inside(root/'work/extracted',spec['bank_path'])])
+                            ET.parse(base.with_suffix('.xml'))
+                            os.replace(base.with_suffix('.xml'),xml)
+                fields = list(ET.parse(xml).iter('field'))
+                sources = [f for f in fields if f.attrib.get('name') == 'sourceID']
+                if len(sources) != 1 or int(sources[0].attrib['value'], 0) != int(row['media_id']):
+                    raise ValueError(f'{ident}: alias/primary bank does not refer to selected physical media')
+                if struct.unpack_from('<I',bank_data,int(sources[0].attrib['offset']))[0] != int(row['media_id']):
+                    raise ValueError(f'{ident}: bank XML sourceID does not match bank bytes')
+                plugins = [f for f in fields if f.attrib.get('name') == 'ulPluginID']
+                sizes = [f for f in fields if f.attrib.get('name') == 'uInMemoryMediaSize']
+                if len(plugins) != 1 or len(sizes) != 1:
+                    raise ValueError(f'{ident}: bank is not a supported single-media bank')
+                plugin, size = plugins[0], sizes[0]
+                original_plugin = int(plugin.attrib['value'], 0)
+                if original_plugin not in (0x40001, 0x10001):
+                    raise ValueError(f'{ident}: unsupported source codec {original_plugin:#x}')
+                plugin_offset, size_offset = int(plugin.attrib['offset']), int(size.attrib['offset'])
+                if struct.unpack_from('<I', bank_data, plugin_offset)[0] != original_plugin:
+                    raise ValueError(f'{ident}: bank XML does not match bank bytes')
+                struct.pack_into('<I', bank_data, plugin_offset, 0x10001)
+                struct.pack_into('<I', bank_data, size_offset, media.stat().st_size)
+                bank.write_bytes(bank_data)
+                patched_banks.append(spec['bank_path'].replace('\\', '/'))
             verified = out / 'processed' / (ident + '-verified.wav')
             _run([tools / 'vgmstream/vgmstream-cli.exe', '-o', verified, media])
             decoded, decoded_sr = sf.read(verified)
             if decoded_sr != sr or decoded.shape != data.shape or np.max(np.abs(decoded-data)) >= .0001:
                 raise ValueError(f'{ident}: WEM roundtrip verification failed')
-            expected.update([row['media_path'].replace('\\', '/'), row['bank_path'].replace('\\', '/')])
+            expected.add(row['media_path'].replace('\\', '/'))
+            expected.update(patched_banks)
             entry = {**fit, 'id': ident, 'speaker': row.get('speaker'), 'text': row.get('tts_ru'),
                      'media_bytes': media.stat().st_size, 'fitted_seconds': len(data)/sr,
-                     'original_seconds': original.duration, 'verified': True}
+                     'original_seconds': original.duration, 'verified': True,
+                     'bank_paths': patched_banks, 'bank_alias_count': len(patched_banks)-1}
             report.append(entry)
             _emit(progress, 'pack_line', current=index, total=len(rows), **entry)
         temporary_pak = Path(temp) / package_name
@@ -314,7 +403,8 @@ def build_package(root, rows, out, package_name='NWTD_RU_Qwen_P.pak', event=None
         shutil.copy2(temporary_pak, out / (package_name + '.tmp'))
         os.replace(out / (package_name + '.tmp'), pak)
     manifest = dict(status='built; all media roundtrips verified; runtime listener review pending',
-                    lines=len(rows), banks=len(rows), media=len(rows), pak_path=str(pak),
+                    lines=len(rows), banks=len(bank_paths), media=len(media_paths),
+                    bank_aliases=len(bank_paths)-len(rows), pak_path=str(pak),
                     pak_bytes=pak.stat().st_size, pak_sha256=_sha256(pak), files=listing, timing=report)
     _json(out / 'build-manifest.json', manifest)
     _emit(progress, 'build_done', lines=len(rows), pak_path=str(pak), pak_sha256=manifest['pak_sha256'])
@@ -345,6 +435,8 @@ def install_package(root, out, package_name='NWTD_RU_Qwen_P.pak', game_dir=None,
     Unknown or partially covered overlapping packages are refused.
     """
     progress = event
+    if game_dir is None:
+        raise ValueError('Explicit game_dir is required for installation')
     if Path(package_name).name != package_name:
         raise ValueError('package_name must be a plain filename')
     root, package, game_dir = Path(root).resolve(), (Path(out) / package_name).resolve(), Path(game_dir).resolve()
@@ -457,7 +549,7 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--mode', choices=['speedup', 'both', 'pad', 'none'], default='speedup')
     parser.add_argument('--no-trim', action='store_true')
-    parser.add_argument('--loudness', choices=['original', 'none', 'lufs'], default='original')
+    parser.add_argument('--loudness', choices=['original', 'none', 'lufs', 'reference'], default='original')
     parser.add_argument('--target-lufs', type=float, default=-20.)
     parser.add_argument('--gain-db', type=float, default=0.)
     parser.add_argument('--peak-db', type=float, default=-1.)
