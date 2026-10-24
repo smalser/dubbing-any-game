@@ -72,6 +72,7 @@ examples/demo/config.json
 examples/comparison/index.html
 examples/comparison/provenance.json
 docs/QWEN.md
+docs/RATCHET_RIFT_APART.md
 docs/SKILL.md
 skills/universal-dubbing/SKILL.md
 skills/universal-dubbing/agents/openai.yaml
