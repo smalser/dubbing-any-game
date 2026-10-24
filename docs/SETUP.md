@@ -61,3 +61,55 @@ python tools/download_model.py --repo ORGANIZATION/MODEL --revision PINNED_COMMI
 ```
 
 Замените placeholders выбранным репозиторием и закреплённым commit. Dry-run только показывает план. Уберите флаг после проверки лицензии, размера и разрешения на загрузку. Синтез не вызывает этот помощник автоматически.
+
+## Проверка установки с mock
+
+`mock` создаёт тестовый звуковой сигнал, а не речь. Этот раздел нужен для диагностики обработки WAV; для озвучки используйте Qwen или другой TTS-адаптер.
+
+Нужны **Python 3.10+** и **FFmpeg** в PATH; для ускорения аудио нужен фильтр Rubber Band. GPU, веса модели и Universal Modder для этого примера не требуются. Совместимость зависимостей и способы установки описаны в [инструкции выше](#установка).
+
+Все команды выполняйте из корня репозитория. Создайте окружение:
+
+```text
+python -m venv .venv
+```
+
+| Оболочка | Активация |
+|---|---|
+| Windows PowerShell | `.venv/Scripts/Activate.ps1` |
+| Linux/macOS | `source .venv/bin/activate` |
+
+Если активация недоступна, вместо `python` вызывайте `.venv/Scripts/python.exe` на Windows или `.venv/bin/python` на Linux/macOS.
+
+Установите зависимости и подготовьте синтетический пример:
+
+```text
+python -m pip install -e .
+python dub.py --help
+python tools/make_demo.py
+python dub.py doctor --config examples/demo/config.json
+python dub.py plan --config examples/demo/config.json
+python dub.py generate --config examples/demo/config.json --dry-run
+```
+
+Продолжайте после успешного `doctor` и проверки списка IDs в `plan`. `make_demo.py` создаёт тестовый тон и перезаписывает демонстрационный манифест; собственные данные храните отдельно.
+
+```text
+python dub.py generate --config examples/demo/config.json
+python dub.py fit --config examples/demo/config.json
+python dub.py verify --config examples/demo/config.json
+python dub.py preview --config examples/demo/config.json
+python dub.py package --config examples/demo/config.json
+```
+
+**Ожидаемый результат:** одна обработанная реплика `demo-001` в `work/demo/`. Mock генерирует тон, поэтому в этом примере вы услышите сигнал, а не произнесённый текст.
+
+| Путь внутри `work/demo/` | Что в нём |
+|---|---|
+| `raw/` | Синтез до подгонки, с метаданными |
+| `fitted/` | WAV после обработки |
+| `verification.json` | Результат технической проверки |
+| `listen.html` | Страница прослушивания; откройте её в браузере |
+| `audio-export.zip` | Проверенные WAV и манифест экспорта |
+| `package.json` | Размер и SHA256 архива |
+| `status.json`, `events.jsonl` | Состояние и журнал этапов |
