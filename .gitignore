@@ -17,3 +17,5 @@ examples/demo/*.wav
 *.fsb
 *.safetensors
 *.pt
+.local.md
+.venv-*/
