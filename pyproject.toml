@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "universal-dubbing"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local, adapter-driven dialogue synthesis and portable audio delivery"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -13,6 +13,8 @@ dependencies = ["numpy>=1.24,<3", "soundfile>=0.12,<1"]
 
 [project.optional-dependencies]
 qwen = ["qwen-tts==0.1.1"]
+game = ["universal-modder @ git+https://github.com/rehan-remade/universal-modder.git@c1dff21663665dd17af289744a301b66e369605e"]
+unity = ["UnityPy==1.25.4", "TypeTreeGeneratorAPI==0.0.10"]
 
 [project.scripts]
 dub = "dubbing.cli:main"

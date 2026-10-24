@@ -26,6 +26,16 @@ python dub.py doctor --config examples/demo/config.json
 python -m pip install -e ".[qwen]"
 ```
 
+Для игрового плейбука установите обязательный Universal Modder (нужен Git):
+
+```text
+python -m pip install -e ".[game]"
+python dub.py doctor --config examples/demo/config.json --game-tools
+python -m um --version
+```
+
+Для общего окружения используйте `python -m pip install -e ".[qwen,game]"`. Помощник установки: `python tools/bootstrap.py --extra qwen --game-tools --dry-run`. Точный revision Universal Modder закреплён в pyproject.toml и проверяется doctor. Профиль не вызывает сервисы генерации: оплачиваемые инструменты Universal Modder не запускаются автоматически.
+
 Выбор PyTorch/CUDA зависит от оборудования и драйвера; дополнительные зависимости проекта не гарантируют правильную GPU-сборку для любой машины. Установите подходящую версию по официальной инструкции PyTorch. Веса модели приобретайте/загружайте по её собственным условиям, сохраняйте локально и передавайте через `--model`.
 
 Doctor с конфигурацией Qwen проверяет наличие Python-пакетов, config.json/весов, доступность устройства и reference WAV. Он не загружает модель: совместимость ревизии, dtype и устройства подтверждается только отдельным коротким синтезом и прослушиванием. Для внешнего адаптера doctor честно сообщает отсутствие его собственного preflight. `plan` и dry-run проверяют выборку и пути, но не заменяют doctor.

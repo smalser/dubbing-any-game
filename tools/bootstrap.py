@@ -10,7 +10,9 @@ import venv
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--venv', default='.venv')
-    p.add_argument('--extra', choices=['qwen'])
+    p.add_argument('--extra', choices=['qwen', 'unity'], action='append', default=[],
+                   help='Repeat to install multiple model/integration profiles')
+    p.add_argument('--game-tools', action='store_true', help='Install required Universal Modder for game integration')
     p.add_argument('--dry-run', action='store_true')
     p.add_argument('--pip-timeout', type=int, default=15)
     p.add_argument('--pip-retries', type=int, default=1)
@@ -18,7 +20,8 @@ def main():
     root = Path(__file__).resolve().parents[1]
     env = (root / a.venv).resolve()
     python = env / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
-    spec = str(root) + ('[' + a.extra + ']' if a.extra else '')
+    extras = list(dict.fromkeys(a.extra + (['game'] if a.game_tools else [])))
+    spec = str(root) + ('[' + ','.join(extras) + ']' if extras else '')
     if a.pip_timeout < 1 or a.pip_retries < 0:
         p.error('pip-timeout must be positive and pip-retries nonnegative')
     cmd = [str(python), '-m', 'pip', 'install', '--timeout', str(a.pip_timeout),

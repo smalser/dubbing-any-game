@@ -14,6 +14,11 @@ def diagnose(args):
     def check(name, passed, detail):
         checks.append({'check': name, 'passed': bool(passed), 'detail': detail})
 
+    if getattr(args, 'game_tools', False):
+        from ..integrations.universal_modder import inspect_toolkit
+        toolkit = inspect_toolkit()
+        check('game:universal_modder', toolkit['passed'], toolkit)
+
     for package in ['numpy', 'soundfile'] + (['qwen-tts', 'torch', 'transformers'] if args.adapter == 'qwen' else []):
         try:
             version = importlib.metadata.version(package)

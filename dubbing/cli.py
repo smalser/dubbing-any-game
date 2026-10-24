@@ -43,6 +43,8 @@ def parser():
     p.add_argument('--peak-db', type=float, default=-1)
     p.add_argument('--max-speedup', type=float, default=2)
     p.add_argument('--ffmpeg', default='ffmpeg')
+    p.add_argument('--game-tools', action=argparse.BooleanOptionalAction, default=False,
+                   help='Check the pinned Universal Modder requirement in doctor')
     p.add_argument('--lock-dir', default=str(Path.home() / '.cache' / 'universal-dubbing'))
     p.add_argument('--allow-download', action=argparse.BooleanOptionalAction, default=False,
                    help='Allow dependency network access; model path still local')
@@ -64,7 +66,7 @@ def main(argv=None):
             flags = []
             for key, value in defaults.items():
                 flag = '--' + key.replace('_', '-')
-                if key in ('allow_download', 'dry_run'):
+                if key in ('allow_download', 'dry_run', 'game_tools'):
                     if type(value) is not bool:
                         raise ValueError('Config boolean required: ' + key)
                     if value:

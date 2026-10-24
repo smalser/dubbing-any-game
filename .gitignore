@@ -8,3 +8,12 @@ build/
 examples/comparison/audio/
 examples/demo/*.wav
 *.lock
+**/bin/
+**/obj/
+*.dll
+*.pdb
+*.exe
+*.bank
+*.fsb
+*.safetensors
+*.pt

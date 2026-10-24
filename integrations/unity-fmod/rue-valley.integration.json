@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "game_exe": "Rue Valley.exe",
+  "managed_relative": "Rue Valley_Data/Managed",
+  "voice_bus": "bus:/Voice",
+  "loader": "BepInEx 5.4.23.3 Windows x64",
+  "qa": {
+    "redirect_save_directory": false,
+    "enable_file_bridge": false,
+    "dialogue_observer": "DialoguesMenu.HandleArticyInteractableDialogueFragment"
+  }
+}
