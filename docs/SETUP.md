@@ -13,6 +13,8 @@ python -m venv .venv
 | Windows PowerShell | `.venv/Scripts/Activate.ps1` | `.venv/Scripts/python.exe` |
 | Linux/macOS shell | `source .venv/bin/activate` | `.venv/bin/python` |
 
+Установите FFmpeg средствами вашей ОС и убедитесь, что исполняемый файл доступен. Можно передать `--ffmpeg /path/to/ffmpeg`. Поддержка нужных фильтров зависит от сборки FFmpeg. Проверьте `ffmpeg -version` до запуска doctor.
+
 ```text
 python -m pip install --upgrade pip
 python -m pip install -e .
@@ -20,15 +22,13 @@ python tools/make_demo.py
 python dub.py doctor --config examples/demo/config.json
 ```
 
-Установите FFmpeg средствами вашей ОС и убедитесь, что исполняемый файл доступен. Можно передать `--ffmpeg /path/to/ffmpeg`. Поддержка нужных фильтров зависит от сборки FFmpeg.
-
 Для Qwen:
 
 ```text
 python -m pip install -e ".[qwen]"
 ```
 
-Для игрового плейбука установите обязательный Universal Modder (нужен Git):
+Для игрового плейбука установите обязательный Universal Modder. Сначала установите [Git](https://git-scm.com/downloads/), откройте новый терминал, снова активируйте окружение и проверьте `git --version`. Git нужен для установки `.[game]` из закреплённого commit даже при скачивании самого Universal Dubbing как ZIP. Затем:
 
 ```text
 python -m pip install -e ".[game]"
@@ -63,6 +63,14 @@ python tools/download_model.py --repo ORGANIZATION/MODEL --revision PINNED_COMMI
 ```
 
 Замените placeholders выбранным репозиторием и закреплённым commit. Dry-run только показывает план. Уберите флаг после проверки лицензии, размера и разрешения на загрузку. Синтез не вызывает этот помощник автоматически.
+
+## Если FFmpeg не содержит Rubber Band
+
+Выполните `ffmpeg -hide_banner -filters` и найдите строку `rubberband`. Если её нет, используйте сборку FFmpeg с `--enable-librubberband`: [документация фильтра](https://ffmpeg.org/ffmpeg-filters.html#rubberband) объясняет это требование. Ссылки на готовые сборки под разные ОС есть на [странице FFmpeg](https://ffmpeg.org/download.html). Установка одноимённого Python-пакета не добавит фильтр в FFmpeg.
+
+После установки проверьте именно новый исполняемый файл: `"path/to/ffmpeg" -hide_banner -filters` (в PowerShell перед путём в кавычках поставьте `&`). Укажите этот путь в поле `ffmpeg` своего config; на Windows в JSON удобно использовать `/`. Повторите `doctor` с этим config. Так проект не выберет старую сборку из PATH.
+
+Первый речевой тест Qwen использует `timing: none` и может работать без ускорения. Для игрового конфига `speedup` не отключайте проверку фильтра просто ради успешного doctor: смена на `none` снимает гарантию целевых кадров. Если сознательно выбран `pad`, слишком длинные записи будут отклонены; это другой режим обработки, а не замена Rubber Band.
 
 ## Проверка установки с mock
 

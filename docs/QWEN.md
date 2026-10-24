@@ -36,7 +36,7 @@ python -m pip check
 python -c "import torch, qwen_tts; print('torch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('bfloat16:', torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False)"
 ```
 
-Проект закрепляет `qwen-tts==0.1.1`. Пакет и веса модели устанавливаются отдельно. Для игрового исследования позже добавьте `python -m pip install -e ".[game]"` (нужен Git); для этого речевого теста Universal Modder не нужен.
+Проект закрепляет `qwen-tts==0.1.1`. Пакет и веса модели устанавливаются отдельно. Для игрового исследования позже добавьте `python -m pip install -e ".[game]"` ([сначала установите и проверьте Git](SETUP.md)); для этого речевого теста Universal Modder не нужен.
 
 Встроенный конфиг теста использует CPU / float32, чтобы не предполагать наличие конкретной видеокарты. Это может быть медленно и требовать значительной RAM; CPU-синтез не является проверенной здесь конфигурацией. Проверенный ранее маршрут проекта — NVIDIA CUDA / bfloat16 / SDPA. Если проверка CUDA и bfloat16 выше дала `True`, измените `device` на `cuda:0`, `dtype` на `bfloat16` в `examples/qwen/config.json` **до запуска**. SDPA уже задан; FlashAttention для этого рецепта не требуется. Другие устройства и dtype требуют отдельной проверки.
 
@@ -121,6 +121,7 @@ python dub.py preview --config examples/qwen/config.json
 |---|---|
 | `python` или `ffmpeg` не найден | Установку, PATH и новый терминал; Python должен быть из выбранного окружения |
 | Не импортируется `torch`/`qwen_tts` | `sys.executable`, установку `.[qwen]`, `python -m pip check` |
+| Doctor сообщает отсутствие `rubberband` | Используйте [сборку FFmpeg с нужным фильтром](SETUP.md#если-ffmpeg-не-содержит-rubber-band) для игрового ускорения |
 | CUDA недоступна | GPU, драйвер и сборку PyTorch; установка пакета Qwen сама по себе не включает CUDA |
 | Ошибка BF16 | Поддержку bfloat16 устройством; выберите совместимый dtype и отдельно проверьте синтез |
 | `model:local_files` не прошёл | Путь `model` относительно корня проекта и завершённую загрузку |
